@@ -145,7 +145,7 @@ Format as JSON array of events."""
             query = f"${ticker} OR #{ticker} -is:retweet lang:en"
             tweets = self.twitter_client.search_recent_tweets(
                 query=query,
-                max_results=100,  # Limit to 100 tweets
+                max_results=5,  # Lowered to 20 tweets per request
                 tweet_fields=['created_at', 'public_metrics', 'lang']
             )
             

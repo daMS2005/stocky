@@ -13,12 +13,14 @@ class MetaAgentController:
         self.feedback_dict = {}  # In-memory feedback log deduplication
 
     def make_prediction(self, ticker: str, timeframe: Dict[str, str], features: Dict[str, Any]) -> Dict[str, Any]:
+        """Make a prediction and generate reports with market features."""
         # Retrieve similar past cases (RAG feedback)
         similar_cases = self.logger.embed_and_retrieve_similar(features)
         feedback_summary = self._summarize_feedback(similar_cases)
 
         # Construct prompt with feedback
         prompt_feedback = feedback_summary or "No similar past cases found."
+        
         # Get recommendation from analyst
         prediction_output = self.analyst.get_recommendation_with_feedback(features, ticker, prompt_feedback, timeframe)
 
@@ -42,8 +44,10 @@ class MetaAgentController:
             used_features=used_features,
             prompt_feedback=prompt_feedback,
             date=generated_date,
-            current_price=current_price
+            current_price=current_price,
+            features=features  # Pass the full features dict
         )
+        
         # Prepare natural language report
         report = generate_natural_language_report(
             ticker=ticker,
@@ -52,11 +56,18 @@ class MetaAgentController:
             reasoning=reasoning,
             used_features=used_features,
             prompt_feedback=prompt_feedback,
-            current_price=current_price
+            current_price=current_price,
+            features=features  # Pass the full features dict
         )
+        
         # Deduplicate feedback logs for this (ticker, timeframe)
         self._log_feedback_dedup(ticker, timeframe, structured, report, features, generated_date)
-        return {"structured": structured, "report": report, "feedback": prompt_feedback}
+        
+        return {
+            "structured": structured,
+            "report": report,
+            "feedback": prompt_feedback
+        }
 
     def _summarize_feedback(self, cases: List[Dict[str, Any]]) -> str:
         if not cases:

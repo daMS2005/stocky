@@ -35,6 +35,36 @@ class GPTAnalyst:
         earnings = json.dumps(features.get('fundamental', {}).get('earnings', {}) or {}, indent=2)
         macro_indicators = json.dumps(features.get('fundamental', {}).get('macro_indicators', {}) or {}, indent=2)
         
+        # Extract market features (prefer new dict, fallback to old keys)
+        market_features = features.get('market_features', {})
+        fx_rates = json.dumps(
+            market_features.get('fx_rates') or features.get('fx_rates', {}) or {}, indent=2
+        )
+        country_risk = (
+            market_features.get('country_risk')
+            if 'country_risk' in market_features else features.get('country_risk', 'N/A')
+        )
+        commodity_prices = json.dumps(
+            market_features.get('commodity_prices') or features.get('commodity_prices', {}) or {}, indent=2
+        )
+        company_commodities = ', '.join(
+            market_features.get('company_commodities') or features.get('company_commodities', [])
+        ) or 'None'
+        vix = (
+            market_features.get('vix') if 'vix' in market_features else features.get('vix', 'N/A')
+        )
+        garch_volatility = (
+            market_features.get('garch_volatility') if 'garch_volatility' in market_features else features.get('garch_volatility', 'N/A')
+        )
+        
+        # Lagged features summary
+        lagged_features = []
+        for lag in range(1, 4):
+            close = price_data[-1].get(f'Close_t-{lag}', 'N/A') if price_data else 'N/A'
+            ret = price_data[-1].get(f'Return_t-{lag}', 'N/A') if price_data else 'N/A'
+            lagged_features.append(f"Close_t-{lag}: {close}, Return_t-{lag}: {ret}")
+        lagged_features_summary = '\n'.join(lagged_features)
+
         prompt = f"""You are an expert financial analyst. Analyze the following data for {ticker} and provide a detailed trading recommendation.
         
 Current Price: ${current_price}
@@ -56,16 +86,30 @@ Earnings Data:
 Macroeconomic Indicators:
 {macro_indicators}
 
+Market & Macro Features:
+FX Rates:
+{fx_rates}
+
+Country Risk Index:
+{country_risk}
+
+Relevant Commodities for {ticker}:
+{company_commodities}
+
+Commodity Prices:
+{commodity_prices}
+
+Volatility Indices:
+- VIX: {vix}
+- GARCH Volatility: {garch_volatility}
+
+Lagged Features (recent days):
+{lagged_features_summary}
+
 Based on this comprehensive data, provide a trading recommendation in the following JSON format. **Return only strict, valid JSON. Do not include comments, duplicate fields, or trailing commas. All required fields must be present.**
 
 Example:
 {{
-  "ticker": "AAPL",
-  "date": "2022-06-30",
-  "timeframe": {{
-    "start": "2022-07-01",
-    "end": "2022-07-07"
-  }},
   "prediction": {{
     "action": "Buy",
     "entry_price": 134.5,
