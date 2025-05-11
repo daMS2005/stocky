@@ -142,11 +142,10 @@ Format as JSON array of events."""
         """Analyze Twitter sentiment for a given ticker."""
         try:
             # Search for tweets about the ticker
-            query = f"${ticker} OR #{ticker} -is:retweet lang:en"
             tweets = self.twitter_client.search_recent_tweets(
-                query=query,
-                max_results=5,  # Lowered to 20 tweets per request
-                tweet_fields=['created_at', 'public_metrics', 'lang']
+                query=f"${ticker} -is:retweet lang:en",
+                tweet_fields=["public_metrics", "created_at"],
+                max_results=10,  # Increased from 5 to 10 tweets per request
             )
             
             if not tweets.data:

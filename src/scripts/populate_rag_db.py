@@ -54,12 +54,10 @@ def features_changed(old_features, new_features):
 
     return compare_dicts(old_features, new_features)
 
-# --- Main ---
-if __name__ == '__main__':
-    args = parse_args()
-    TICKER = args.ticker.upper()
-    START_DATE = dt.strptime(args.start, '%Y-%m-%d').date()
-    END_DATE = dt.strptime(args.end, '%Y-%m-%d').date()
+def populate_rag_db(ticker, start, end, force_update=False):
+    TICKER = ticker.upper()
+    START_DATE = dt.strptime(start, '%Y-%m-%d').date()
+    END_DATE = dt.strptime(end, '%Y-%m-%d').date()
     EMBEDDING_MODEL = "text-embedding-3-small"
     EMBEDDING_DIM = 1536
 
@@ -72,29 +70,20 @@ if __name__ == '__main__':
     while current <= END_DATE:
         week_start = current
         week_end = week_start + timedelta(days=4)
-        
         print(f"\nProcessing week {week_key(TICKER, week_start)}...")
-        
         # 1. Get price data and features
-        # Fetch 60 days of data before the week for technical indicators (to ensure enough data for MACD)
         lookback_start = week_start - timedelta(days=60)
         df = data_fetcher.fetch_stock_data(TICKER, lookback_start.strftime('%Y-%m-%d'), week_end.strftime('%Y-%m-%d'))
         if df.empty:
             print(f"No data available for week of {week_start}, skipping.")
             current += timedelta(days=7)
             continue
-            
-        # Calculate technical indicators on the full window
         df = data_fetcher.calculate_technical_indicators(df)
-        
-        # Get the last 5 days (the actual week) for the record
         week_df = df[df.index.date >= week_start]
         if week_df.empty:
             print(f"No data available for week of {week_start}, skipping.")
             current += timedelta(days=7)
             continue
-        
-        # Get all available features
         new_features = {
             'technical': {
                 'rsi': float(df['RSI'].iloc[-1]) if 'RSI' in df.columns and not pd.isna(df['RSI'].iloc[-1]) else None,
@@ -118,21 +107,17 @@ if __name__ == '__main__':
                 'volume': float(week_df['Volume'].sum())
             }
         }
-        
-        # Calculate outcome based on weekly return
         weekly_return = new_features['price_data']['weekly_return']
-        if weekly_return > 2.0:  # Strong positive return
+        if weekly_return > 2.0:
             outcome = "STRONG_BUY"
-        elif weekly_return > 0.5:  # Moderate positive return
+        elif weekly_return > 0.5:
             outcome = "BUY"
-        elif weekly_return < -2.0:  # Strong negative return
+        elif weekly_return < -2.0:
             outcome = "STRONG_SELL"
-        elif weekly_return < -0.5:  # Moderate negative return
+        elif weekly_return < -0.5:
             outcome = "SELL"
-        else:  # Small movement
+        else:
             outcome = "HOLD"
-        
-        # Try to get fundamental data, but don't fail if unavailable
         try:
             ratios = data_fetcher.get_financial_ratios(TICKER)
             new_features['fundamental'] = {
@@ -147,8 +132,6 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"Warning: Could not fetch fundamental data: {str(e)}")
             new_features['fundamental'] = {}
-        
-        # Try to get macro data, but don't fail if unavailable
         try:
             new_features['macro'] = {
                 'country_risk': data_fetcher.get_country_risk(TICKER),
@@ -158,53 +141,46 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"Warning: Could not fetch macro data: {str(e)}")
             new_features['macro'] = {}
-        
-        # 2. Gather texts (stub: use dummy headlines, replace with real pipeline)
         texts = [
             f"{TICKER} news headline for week of {week_start}",
             f"{TICKER} earnings update for week of {week_start}"
         ]
-        
-        # 3. Embed texts using OpenAI
         embeddings = []
         for text in texts:
             response = openai.embeddings.create(model=EMBEDDING_MODEL, input=text)
             emb = response.data[0].embedding
             embeddings.append(np.array(emb, dtype='float32'))
-        
-        # 4. Add or update record in vector store
         record = {
             'week_start': week_start,
             'ticker': TICKER,
             'features': new_features,
             'texts': texts,
             'embeddings': [e.tolist() for e in embeddings],
-            'price_data': new_features['price_data'],  # Store price data separately for easy access
-            'outcome': outcome  # Add the outcome
+            'price_data': new_features['price_data'],
+            'outcome': outcome
         }
-        
-        # Check if record exists and needs update
         existing_record = get_existing_record(vector_store, TICKER, week_start)
-        if existing_record and not args.force_update:
+        if existing_record and not force_update:
             if not features_changed(existing_record['features'], new_features):
                 print(f"Week {week_key(TICKER, week_start)} already in DB with same features, skipping.")
                 current += timedelta(days=7)
                 continue
             else:
                 print(f"Updating existing record for week {week_key(TICKER, week_start)}...")
-        
         if existing_record:
             vector_store.update_record(existing_record, record)
             print(f"Updated week {week_key(TICKER, week_start)} in DB.")
         else:
             vector_store.add_record(record)
             print(f"Added new week {week_key(TICKER, week_start)} to DB.")
-        
         print(f"Price Movement: Open ${new_features['price_data']['open_price']:.2f} → Close ${new_features['price_data']['close_price']:.2f} ({new_features['price_data']['weekly_return']:+.2f}%)")
         print(f"Technical Indicators: RSI={new_features['technical']['rsi']:.2f}, MACD={new_features['technical']['macd']:.2f}")
         if new_features.get('macro', {}).get('country_risk') is not None:
             print(f"Country Risk: {new_features['macro']['country_risk']}, VIX: {new_features['macro'].get('vix')}")
-        
         current += timedelta(days=7)
-    
-    print("\nDone populating RAG DB.") 
+    print("\nDone populating RAG DB.")
+
+# --- CLI ---
+if __name__ == '__main__':
+    args = parse_args()
+    populate_rag_db(args.ticker, args.start, args.end, args.force_update) 

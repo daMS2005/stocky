@@ -145,8 +145,13 @@ Provide a clear, data-driven explanation for your recommendation that considers 
         cleaned_content = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw_content.strip(), flags=re.IGNORECASE)
         try:
             gpt_response = json.loads(cleaned_content)
-            # Only extract prediction, used_features, prompt_feedback
+            if not isinstance(gpt_response, dict):
+                print(f"LLM response is not a dict: {type(gpt_response)} - {gpt_response}")
+                gpt_response = {}
             prediction = gpt_response.get("prediction", {})
+            if not isinstance(prediction, dict):
+                print(f"Prediction is not a dict: {type(prediction)} - {prediction}")
+                prediction = {}
             used_features = gpt_response.get("used_features", [])
             prompt_feedback = gpt_response.get("prompt_feedback", "")
             # Ensure all numeric fields are properly handled

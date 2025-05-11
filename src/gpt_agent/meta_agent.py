@@ -12,7 +12,7 @@ class MetaAgentController:
         self.logger = AgentLogger()
         self.feedback_dict = {}  # In-memory feedback log deduplication
 
-    def make_prediction(self, ticker: str, timeframe: Dict[str, str], features: Dict[str, Any]) -> Dict[str, Any]:
+    def make_prediction(self, ticker: str, timeframe: Dict[str, str], features: Dict[str, Any], generated_on: str = None) -> Dict[str, Any]:
         """Make a prediction and generate reports with market features."""
         # Retrieve similar past cases (RAG feedback)
         similar_cases = self.logger.embed_and_retrieve_similar(features)
@@ -57,7 +57,8 @@ class MetaAgentController:
             used_features=used_features,
             prompt_feedback=prompt_feedback,
             current_price=current_price,
-            features=features  # Pass the full features dict
+            features=features,  # Pass the full features dict
+            generated_on=generated_on  # Use passed date
         )
         
         # Deduplicate feedback logs for this (ticker, timeframe)

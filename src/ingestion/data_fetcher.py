@@ -337,9 +337,13 @@ class DataFetcher:
         try:
             print(f"\n=== Fetching features for {ticker} ===")
             
+            # Calculate date range for last 30 days
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            
             # Get price data and technical indicators
             print("\n1. Fetching stock data...")
-            df = self.fetch_stock_data(ticker, "2022-06-01", "2022-06-30")
+            df = self.fetch_stock_data(ticker, start_date, end_date)
             if df is None or df.empty:
                 print("❌ No stock data available")
                 return {

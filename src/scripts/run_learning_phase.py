@@ -29,27 +29,43 @@ def get_learning_metrics(logger: PredictionLogger, ticker: str) -> Dict:
         'average_return': summary['average_return']
     }
 
-def build_prediction_prompt(ticker: str, current_features: dict, similar_past_weeks: list) -> str:
+def build_prediction_prompt(ticker: str, current_features: dict, similar_weeks: list) -> str:
     """Build a prompt for the LLM to make a prediction."""
-    
-    # Format similar past weeks
+    # Log and skip any non-dict entries
+    filtered_weeks = []
+    for week in similar_weeks:
+        if not isinstance(week, dict):
+            print(f"Warning: similar_weeks contains a non-dict: {week}")
+            continue
+        filtered_weeks.append(week)
     past_weeks_text = "\n".join([
         f"[{week.get('week_start', 'N/A')}] {week.get('outcome', 'N/A')} → {float(week.get('price_data', {}).get('weekly_return', 0.0)):.2f}% {week.get('feedback', '')}"
-        for week in similar_past_weeks
+        for week in filtered_weeks
     ])
-    
-    # Format current features
+    # Handle price_data as dict or list
+    price_data = current_features.get('price_data', {})
+    if isinstance(price_data, dict):
+        open_price = float(price_data.get('open_price', 0.0))
+        close_price = float(price_data.get('close_price', 0.0))
+        weekly_return = float(price_data.get('weekly_return', 0.0))
+    elif isinstance(price_data, list) and price_data and isinstance(price_data[0], dict):
+        open_price = float(price_data[0].get('open_price', 0.0))
+        close_price = float(price_data[0].get('close_price', 0.0))
+        weekly_return = float(price_data[0].get('weekly_return', 0.0))
+    else:
+        open_price = close_price = weekly_return = 0.0
+    # Format current features with guards
     features_text = f"""
 Current Technical Indicators:
-- RSI: {current_features['technical'].get('rsi', 'N/A')}
-- MACD: {current_features['technical'].get('macd', 'N/A')}
-- Bollinger Bands: {current_features['technical'].get('bollinger_upper', 'N/A')} / {current_features['technical'].get('bollinger_middle', 'N/A')} / {current_features['technical'].get('bollinger_lower', 'N/A')}
-- Volume Ratio: {current_features['technical'].get('volume_ratio', 'N/A')}
+- RSI: {current_features.get('technical', {}).get('rsi', 'N/A')}
+- MACD: {current_features.get('technical', {}).get('macd', 'N/A')}
+- Bollinger Bands: {current_features.get('technical', {}).get('bollinger_upper', 'N/A')} / {current_features.get('technical', {}).get('bollinger_middle', 'N/A')} / {current_features.get('technical', {}).get('bollinger_lower', 'N/A')}
+- Volume Ratio: {current_features.get('technical', {}).get('volume_ratio', 'N/A')}
 
 Current Price Data:
-- Open: ${float(current_features['price_data']['open_price']):.2f}
-- Close: ${float(current_features['price_data']['close_price']):.2f}
-- Weekly Return: {float(current_features['price_data']['weekly_return']):.2f}%
+- Open: ${open_price:.2f}
+- Close: ${close_price:.2f}
+- Weekly Return: {weekly_return:.2f}%
 
 Current Fundamental Data:
 - Debt/Equity: {current_features.get('fundamental', {}).get('debt_to_equity', 'N/A')}
@@ -60,7 +76,6 @@ Current Macro Data:
 - Country Risk: {current_features.get('macro', {}).get('country_risk', 'N/A')}
 - VIX: {current_features.get('macro', {}).get('vix', 'N/A')}
 """
-    
     prompt = f"""You are a performance-aware stock analyst. Your goal is to make accurate predictions and learn from past performance.
 
 📁 Related Past Decisions:
@@ -88,8 +103,56 @@ CONFIDENCE: [0-1]
 REASONING: [your detailed reasoning]
 FEATURES: [list of key features used]
 """
-    
     return prompt
+
+def get_previous_prediction(logger: PredictionLogger, ticker: str, current_date: date) -> str:
+    """Get the previous week's prediction."""
+    predictions = logger.get_past_predictions(ticker, n=2)  # Get last 2 predictions
+    if len(predictions) > 1:
+        return predictions[1]['prediction']  # Return the previous week's prediction
+    return None
+
+def adjust_prediction(prediction: str, previous_prediction: str) -> str:
+    """Adjust prediction based on trend continuation rules."""
+    if prediction == "HOLD" and previous_prediction in ["BUY", "SELL"]:
+        return previous_prediction  # Continue the trend
+    return prediction
+
+def generate_feedback(prediction: str, actual_return: float, previous_prediction: str) -> str:
+    """Generate feedback based on prediction accuracy and trend continuation."""
+    if prediction == "HOLD" and previous_prediction in ["BUY", "SELL"]:
+        # If we continued a trend, evaluate based on the trend
+        if previous_prediction == "BUY" and actual_return > 0:
+            return "Good trend continuation on the upward movement"
+        elif previous_prediction == "SELL" and actual_return < 0:
+            return "Good trend continuation on the downward movement"
+        else:
+            return "Missed the trend reversal"
+    else:
+        # Regular feedback for non-HOLD predictions
+        if prediction in ["STRONG_BUY", "BUY"] and actual_return > 0:
+            return "Good call on the upward trend"
+        elif prediction in ["STRONG_SELL", "SELL"] and actual_return < 0:
+            return "Good call on the downward trend"
+        elif prediction == "HOLD" and abs(actual_return) < 0.5:
+            return "Good call on the sideways movement"
+        else:
+            return "Missed the market direction"
+
+def generate_reflection(prediction: str, actual_return: float, previous_prediction: str, features_used: List[str]) -> str:
+    """Generate reflection based on prediction outcome and features used."""
+    if prediction == "HOLD" and previous_prediction in ["BUY", "SELL"]:
+        if (previous_prediction == "BUY" and actual_return > 0) or (previous_prediction == "SELL" and actual_return < 0):
+            return "Successfully maintained trend continuation. Consider using trend indicators more prominently."
+        else:
+            return "Failed to identify trend reversal. Need to improve trend reversal detection."
+    else:
+        if 'technical' in features_used:
+            return "Need to improve on technical analysis"
+        elif 'fundamental' in features_used:
+            return "Need to improve on fundamental analysis"
+        else:
+            return "Need to improve on overall analysis"
 
 def main():
     # Initialize components
@@ -216,7 +279,10 @@ def main():
             
             similar_weeks = vector_store.query_similar(feature_values, k=5)
             
-            # Build and send prompt to GPT
+            # Get previous week's prediction
+            previous_prediction = get_previous_prediction(logger, TICKER, current_date)
+            
+            # Make prediction
             prompt = build_prediction_prompt(TICKER, current_features, similar_weeks)
             
             client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -282,6 +348,12 @@ def main():
                 current_date += timedelta(days=7)
                 continue
             
+            # Adjust prediction based on trend continuation
+            adjusted_prediction = adjust_prediction(prediction, previous_prediction)
+            if adjusted_prediction != prediction:
+                print(f"\nAdjusted prediction from {prediction} to {adjusted_prediction} based on trend continuation")
+                prediction = adjusted_prediction
+            
             # Log prediction
             logger.log_prediction(
                 ticker=TICKER,
@@ -321,19 +393,11 @@ def main():
                     
                     # Get the prediction for analysis
                     prev_pred = logger.get_past_predictions(TICKER, n=1)[0]
+                    prev_prev_pred = get_previous_prediction(logger, TICKER, prev_week)
                     
-                    # Generate feedback based on prediction accuracy
-                    if prev_pred['prediction'] in ["STRONG_BUY", "BUY"] and actual_return > 0:
-                        feedback = "Good call on the upward trend"
-                    elif prev_pred['prediction'] in ["STRONG_SELL", "SELL"] and actual_return < 0:
-                        feedback = "Good call on the downward trend"
-                    elif prev_pred['prediction'] == "HOLD" and abs(actual_return) < 0.5:
-                        feedback = "Good call on the sideways movement"
-                    else:
-                        feedback = "Missed the market direction"
-                    
-                    # Generate reflection
-                    reflection = f"Need to improve on {'technical' if 'technical' in prev_pred['features_used'] else 'fundamental'} analysis"
+                    # Generate feedback and reflection based on adjusted prediction
+                    feedback = generate_feedback(prev_pred['prediction'], actual_return, prev_prev_pred)
+                    reflection = generate_reflection(prev_pred['prediction'], actual_return, prev_prev_pred, prev_pred['features_used'])
                     
                     # Update outcome
                     logger.update_outcome(
@@ -345,6 +409,8 @@ def main():
                     )
                     
                     print(f"Updated outcome: {actual_return:.2f}% return")
+                    print(f"Feedback: {feedback}")
+                    print(f"Reflection: {reflection}")
             
             except Exception as e:
                 print(f"Error updating outcome: {str(e)}")

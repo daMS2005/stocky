@@ -15,7 +15,7 @@ def generate_structured_json(
     """Generate structured JSON output including market and macro features."""
     structured = {
         "ticker": ticker,
-        "date": date,
+        "date": timeframe['start'],
         "timeframe": timeframe,
         "current_price": current_price,
         "prediction": prediction,
@@ -136,7 +136,9 @@ def generate_natural_language_report(
     report += f"- Relevant Commodities: {commodity_list}\n"
     
     # Format commodity prices
-    commodity_str = ", ".join([f"{k}: ${v:.2f}" for k, v in commodity_prices.items()]) if commodity_prices else "N/A"
+    commodity_str = ", ".join([
+        f"{k}: ${v:.2f}" if v is not None else f"{k}: N/A" for k, v in commodity_prices.items()
+    ]) if commodity_prices else "N/A"
     report += f"- Commodity Prices: {commodity_str}\n"
     
     # Format volatility indices
