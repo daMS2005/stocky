@@ -37,11 +37,19 @@ def generate_structured_json(
         # Also add the new market_features dict if present
         if 'market_features' in features:
             structured["market_features"] = features["market_features"]
-        # Add macro_indicators as a top-level field if present
-        macro_indicators = features.get('fundamental', {}).get('macro_indicators') if features.get('fundamental') else None
+        # Always add macro_indicators if present, with robust debug prints
+        macro_indicators = None
+        try:
+            macro_indicators = features['fundamental']['macro_indicators']
+            print('DEBUG: macro_indicators in features:', macro_indicators)
+        except Exception as e:
+            print('DEBUG: Could not find macro_indicators:', e)
         if macro_indicators is not None:
-            structured["macro_indicators"] = macro_indicators
-    
+            structured['macro_indicators'] = macro_indicators
+            print('DEBUG: macro_indicators added to structured:', structured['macro_indicators'])
+        else:
+            print('DEBUG: macro_indicators NOT FOUND in features')
+    print('DEBUG: Final structured JSON:', structured)
     return structured
 
 def generate_natural_language_report(

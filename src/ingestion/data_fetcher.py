@@ -45,16 +45,16 @@ class DataFetcher:
             volume = df['Volume']
             
             # RSI
-            rsi = RSIIndicator(close=close)
+            rsi = RSIIndicator(close=close, window=14)
             df['RSI'] = rsi.rsi()
             
             # MACD
-            macd = MACD(close=close)
+            macd = MACD(close=close, window_slow=26, window_fast=12, window_sign=9)
             df['MACD'] = macd.macd()
             df['MACD_Signal'] = macd.macd_signal()
             
             # Bollinger Bands
-            bb = BollingerBands(close=close)
+            bb = BollingerBands(close=close, window=20, window_dev=2)
             df['BB_Upper'] = bb.bollinger_hband()
             df['BB_Lower'] = bb.bollinger_lband()
             df['BB_Middle'] = bb.bollinger_mavg()
